@@ -6,3 +6,4 @@ seaborn>=0.11
 shap>=0.41
 openpyxl>=3.0
 xgboost>=1.6.0
+catboost>=1.1

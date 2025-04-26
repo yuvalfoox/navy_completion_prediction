@@ -2,11 +2,13 @@
 import pandas as pd
 import numpy as np
 
+
 def extract_date(source_name):
     try:
         return pd.to_datetime('.'.join(str(source_name).split('.')[:3]), format='%d.%m.%y')
     except:
         return None
+
 
 def load_and_label(filepath: str, stage: int):
     df = pd.read_excel(filepath)
