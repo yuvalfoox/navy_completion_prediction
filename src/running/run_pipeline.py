@@ -2,13 +2,13 @@
 """
 src/running/run_pipeline.py
 
-Main entry point for the Navy Course Completion Prediction pipeline.
+Entry point for the Navy Course Completion Prediction pipeline.
 """
 
 import argparse
 import logging
-import numpy as np
 import pandas as pd
+from sklearn.metrics import classification_report
 import shap
 
 # Logging config
@@ -25,8 +25,8 @@ from src.visualization.plots import (
     plot_shap_summary
 )
 
-def split_by_counter(data, col='assessment_counter', train=0.6, val=0.2):
-    max_val = data[col].max()
+def split_by_counter(data: pd.DataFrame, col='assessment_counter', train=0.6, val=0.2):
+    max_val   = data[col].max()
     train_idx = int(max_val * train)
     val_idx   = int(max_val * (train + val))
     train     = data[data[col] <= train_idx]
@@ -37,15 +37,15 @@ def split_by_counter(data, col='assessment_counter', train=0.6, val=0.2):
 def run_stage(stage, data_fp, labels_fp):
     logger.info(f"### Stage {stage} pipeline start")
 
-    # 1. Load & label
+    # Load and label
     df = load_and_label(data_fp, stage, labels_fp)
     logger.info(f"Loaded {len(df)} rows for Stage {stage}")
 
-    # 2. Feature engineering
+    # Feature engineering
     df = engineer_features(df)
     logger.info("Feature engineering complete")
 
-    # 3. Data split
+    # Split
     train_df, val_df, test_df = split_by_counter(df)
     logger.info(
         "Split rows → train=%d, val=%d, test=%d",
@@ -58,32 +58,31 @@ def run_stage(stage, data_fp, labels_fp):
         test_df['assessment_counter'].nunique()
     )
 
-    # 4. Prepare features & target
+    # Hirustec baseline
+    if 'final_instructor_score' in test_df.columns:
+        preds = (test_df['final_instructor_score'] > 58).astype(int)
+        logger.info("Evaluating Hirustec heuristic (score>58)")
+        print("\n--- Hirustec Baseline ---")
+        print(classification_report(test_df['target'], preds, zero_division=0))
+
+    # Prepare data
     X_train, y_train = train_df.drop(columns=['target']), train_df['target']
     X_test,  y_test  = test_df.drop(columns=['target']),  test_df['target']
 
-    # 5. Feature selection
+    # Feature selection
     X_train_sel = prepare_features(X_train, y_train)
     X_test_sel  = X_test[X_train_sel.columns]
     logger.info("Selected %d features: %s",
-                X_train_sel.shape[1],
-                list(X_train_sel.columns))
+                X_train_sel.shape[1], list(X_train_sel.columns))
 
-    # 6. Train & tune models
+    # Train & tune
     models = train_models(X_train_sel, y_train)
 
-    # 7. Evaluate all models
+    # Evaluate
     for name, mdl in models.items():
         evaluate_model(name, mdl, X_test_sel, y_test)
 
-    # 8. Baseline Hirustec heuristic
-    if 'final_instructor_score' in test_df:
-        preds = (test_df['final_instructor_score'] > 58).astype(int)
-        logger.info("Evaluating Hirustec heuristic (score>58)")
-        print("--- Hirustec baseline ---")
-        print(classification_report(y_test, preds, zero_division=0))
-
-    # 9. SHAP importances for RF
+    # SHAP importances
     if 'rf' in models:
         logger.info("Computing SHAP importances (Random Forest)")
         expl = shap.TreeExplainer(models['rf'])
@@ -92,29 +91,29 @@ def run_stage(stage, data_fp, labels_fp):
         imp = pd.Series(np.abs(vals).mean(0), index=X_test_sel.columns)
         logger.info("Top 10 SHAP features → %s", imp.nlargest(10).to_dict())
 
-    # 10. Plot results
+    # Plots
     plot_confusion_matrices(models, X_test_sel, y_test)
     plot_roc_curves(models, X_test_sel, y_test)
     plot_shap_summary(models['rf'], X_test_sel)
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Run Navy Course Completion Prediction"
+        description="Run Navy Course Completion Prediction pipeline"
     )
     parser.add_argument(
         "--data-file", "-d",
         default="navy_assessments_v1.xlsx",
-        help="Path to the assessment data Excel file"
+        help="Path to raw assessment Excel"
     )
     parser.add_argument(
         "--labels-file", "-l",
         default="navy_assessment.xlsx - labels.csv",
-        help="Path to the labels CSV file"
+        help="Path to labels CSV"
     )
     parser.add_argument(
         "--stages", "-s",
         type=int, nargs="+", default=[1, 2],
-        help="Stages to run, e.g. --stages 1 2"
+        help="Stages to run (e.g. --stages 1 2)"
     )
     args = parser.parse_args()
 
