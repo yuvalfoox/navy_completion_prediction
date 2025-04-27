@@ -1,0 +1,15 @@
+artifact_uri: file:///Users/yuval.foox/PersonalProjects/navy_completion_prediction/mlruns/643727590387478582/292fcacbe3be4452ab77b4875f75cd31/artifacts
+end_time: 1745754578100
+entry_point_name: ''
+experiment_id: '643727590387478582'
+lifecycle_stage: active
+run_id: 292fcacbe3be4452ab77b4875f75cd31
+run_name: gregarious-stork-121
+run_uuid: 292fcacbe3be4452ab77b4875f75cd31
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1745754573703
+status: 3
+tags: []
+user_id: yuval.foox

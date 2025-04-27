@@ -1,0 +1,15 @@
+artifact_uri: file:///Users/yuval.foox/PersonalProjects/navy_completion_prediction/mlruns/643727590387478582/f9fb2bfb1809486ab0e6e134cd5f36eb/artifacts
+end_time: 1745753527468
+entry_point_name: ''
+experiment_id: '643727590387478582'
+lifecycle_stage: active
+run_id: f9fb2bfb1809486ab0e6e134cd5f36eb
+run_name: stage_2
+run_uuid: f9fb2bfb1809486ab0e6e134cd5f36eb
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1745753527280
+status: 3
+tags: []
+user_id: yuval.foox

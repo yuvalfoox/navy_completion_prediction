@@ -1,0 +1,15 @@
+artifact_uri: file:///Users/yuval.foox/PersonalProjects/navy_completion_prediction/mlruns/643727590387478582/3320b560b78845ab948cc595b6c66331/artifacts
+end_time: 1745757102843
+entry_point_name: ''
+experiment_id: '643727590387478582'
+lifecycle_stage: active
+run_id: 3320b560b78845ab948cc595b6c66331
+run_name: mysterious-hound-383
+run_uuid: 3320b560b78845ab948cc595b6c66331
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1745757098240
+status: 3
+tags: []
+user_id: yuval.foox

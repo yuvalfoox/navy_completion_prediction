@@ -1,0 +1,15 @@
+artifact_uri: file:///Users/yuval.foox/PersonalProjects/navy_completion_prediction/mlruns/643727590387478582/9173ee3e17ce46378b0178f36887280c/artifacts
+end_time: 1745753532161
+entry_point_name: ''
+experiment_id: '643727590387478582'
+lifecycle_stage: active
+run_id: 9173ee3e17ce46378b0178f36887280c
+run_name: adorable-lamb-616
+run_uuid: 9173ee3e17ce46378b0178f36887280c
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1745753527470
+status: 3
+tags: []
+user_id: yuval.foox

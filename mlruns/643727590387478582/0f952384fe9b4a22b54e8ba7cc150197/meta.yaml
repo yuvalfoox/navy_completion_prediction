@@ -1,0 +1,15 @@
+artifact_uri: file:///Users/yuval.foox/PersonalProjects/navy_completion_prediction/mlruns/643727590387478582/0f952384fe9b4a22b54e8ba7cc150197/artifacts
+end_time: 1745753858188
+entry_point_name: ''
+experiment_id: '643727590387478582'
+lifecycle_stage: active
+run_id: 0f952384fe9b4a22b54e8ba7cc150197
+run_name: delicate-ape-386
+run_uuid: 0f952384fe9b4a22b54e8ba7cc150197
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1745753853051
+status: 3
+tags: []
+user_id: yuval.foox

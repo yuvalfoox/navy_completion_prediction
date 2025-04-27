@@ -1,0 +1,15 @@
+artifact_uri: file:///Users/yuval.foox/PersonalProjects/navy_completion_prediction/mlruns/643727590387478582/4c4d901d4c204817acda1521b18f54bc/artifacts
+end_time: 1745753524631
+entry_point_name: ''
+experiment_id: '643727590387478582'
+lifecycle_stage: active
+run_id: 4c4d901d4c204817acda1521b18f54bc
+run_name: youthful-robin-818
+run_uuid: 4c4d901d4c204817acda1521b18f54bc
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1745753520106
+status: 3
+tags: []
+user_id: yuval.foox

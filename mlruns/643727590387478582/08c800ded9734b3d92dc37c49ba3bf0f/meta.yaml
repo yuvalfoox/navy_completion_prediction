@@ -1,0 +1,15 @@
+artifact_uri: file:///Users/yuval.foox/PersonalProjects/navy_completion_prediction/mlruns/643727590387478582/08c800ded9734b3d92dc37c49ba3bf0f/artifacts
+end_time: 1745762072563
+entry_point_name: ''
+experiment_id: '643727590387478582'
+lifecycle_stage: active
+run_id: 08c800ded9734b3d92dc37c49ba3bf0f
+run_name: welcoming-seal-610
+run_uuid: 08c800ded9734b3d92dc37c49ba3bf0f
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1745762068464
+status: 3
+tags: []
+user_id: yuval.foox

@@ -1,0 +1,15 @@
+artifact_uri: file:///Users/yuval.foox/PersonalProjects/navy_completion_prediction/mlruns/643727590387478582/ea3e7940433940a59ce278aa333aed5e/artifacts
+end_time: 1745761847346
+entry_point_name: ''
+experiment_id: '643727590387478582'
+lifecycle_stage: active
+run_id: ea3e7940433940a59ce278aa333aed5e
+run_name: unleashed-turtle-91
+run_uuid: ea3e7940433940a59ce278aa333aed5e
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1745761842872
+status: 3
+tags: []
+user_id: yuval.foox

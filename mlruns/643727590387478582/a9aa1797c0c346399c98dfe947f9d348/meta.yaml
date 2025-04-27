@@ -1,0 +1,15 @@
+artifact_uri: file:///Users/yuval.foox/PersonalProjects/navy_completion_prediction/mlruns/643727590387478582/a9aa1797c0c346399c98dfe947f9d348/artifacts
+end_time: 1745762079778
+entry_point_name: ''
+experiment_id: '643727590387478582'
+lifecycle_stage: active
+run_id: a9aa1797c0c346399c98dfe947f9d348
+run_name: indecisive-skunk-40
+run_uuid: a9aa1797c0c346399c98dfe947f9d348
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1745762075361
+status: 3
+tags: []
+user_id: yuval.foox
