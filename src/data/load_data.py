@@ -7,6 +7,7 @@ _STAGE_MAP = {
     2: 'seamanship_command_substage'
 }
 
+
 def extract_date(source_name):
     try:
         return pd.to_datetime(
@@ -16,22 +17,23 @@ def extract_date(source_name):
     except:
         return None
 
+
 def load_and_label(
         data_filepath: str,
         stage: int,
-        labels_filepath: str = 'navy_assessment.xlsx - labels.csv'
+        labels_filepath: str = 'src/data/input/labels.csv'
 ) -> pd.DataFrame:
     """
-    Load raw assessment Excel and merge with labels CSV.
+    Load the CSV version of assessments and merge with labels.
     Args:
-      data_filepath: path to navy_assessments_v1.xlsx
-      stage:       1 or 2
+      data_filepath: path to navy_assessments_v1.csv
+      stage:         1 or 2
       labels_filepath: path to labels.csv
     Returns:
       DataFrame with features + 'target' + 'final_instructor_score'
     """
-    # 1. Load raw assessments
-    df = pd.read_excel(data_filepath)
+    # 1. Load raw assessments (CSV)
+    df = pd.read_csv(data_filepath)
     df['main_assessment_date'] = df['Source.Name'].apply(extract_date)
     df = df.dropna(subset=['main_assessment_date'])
     df = df.sort_values('main_assessment_date')
