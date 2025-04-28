@@ -1,90 +1,117 @@
+#!/usr/bin/env python3
+
 import argparse
 import logging
-from sklearn.metrics import classification_report, f1_score, accuracy_score
-import mlflow.sklearn
+import warnings
+import pandas as pd
+import shap
+import numpy as np
 
-logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s %(levelname)s %(message)s")
-logger = logging.getLogger()
-
-from src.data.load_data import load_and_label
+from src.data.load_data import load_data_and_label
 from src.features.engineer import engineer_features
 from src.models.train import prepare_features, train_models, evaluate_model
-from src.visualization.plots import (
-    plot_confusion_matrices, plot_roc_curves, plot_shap_summary
-)
+from src.visualization.plots import plot_confusion_matrices, plot_roc_curves, plot_shap_summary
 
+warnings.filterwarnings("ignore")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger(__name__)
 
-def split_data(df, train_frac=0.8):
-    df_shuffled = df.sample(frac=1, random_state=42)
-    cut = int(len(df_shuffled) * train_frac)
-    return df_shuffled[:cut], df_shuffled[cut:]
+def split_by_date(data: pd.DataFrame, train_frac=0.6, val_frac=0.2):
+    """Split chronologically based on main_assessment_date."""
+    data = data.sort_values('main_assessment_date')
+    n = len(data)
+    train_end = int(n * train_frac)
+    val_end = int(n * (train_frac + val_frac))
+    return data.iloc[:train_end], data.iloc[train_end:val_end], data.iloc[val_end:]
 
+def run_stage(stage: int, data_fp: str, labels_fp: str):
+    logger.info(f"### Stage {stage} pipeline start")
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--data-file', '-d', default='navy_assessments.csv')
-    parser.add_argument('--labels-file', '-l', default='labels.csv')
-    parser.add_argument('--stage', '-s', type=int, choices=[1,2], required=True)
-    args = parser.parse_args()
+    # 1. Load & label
+    df = load_data_and_label(data_fp, labels_fp, stage)
+    logger.info(f"Loaded {len(df)} rows for Stage {stage}")
 
-    mlflow.set_experiment('navy_completion_prediction')
-    with mlflow.start_run(run_name=f'stage_{args.stage}'):
-        mlflow.log_param('stage', args.stage)
+    # 2. Feature engineering
+    df = engineer_features(df)
+    logger.info("Feature engineering complete")
 
-        # Load & label
-        df = load_and_label(args.data_file, args.stage, args.labels_file)
-        logger.info(f"Stage {args.stage}: {len(df)} records")
-        mlflow.log_param('num_records', len(df))
+    # 3. Split chronologically
+    train_df, val_df, test_df = split_by_date(df)
 
-        # Feature engineering
-        df_feat = engineer_features(df)
-        mlflow.log_param('num_features_before_selection', df_feat.shape[1] - 2)
+    # Drop only main_assessment_date
+    drop_cols = ['main_assessment_date']
+    train_df = train_df.drop(columns=[c for c in drop_cols if c in train_df.columns])
+    val_df   = val_df.drop(columns=[c for c in drop_cols if c in val_df.columns])
+    test_df  = test_df.drop(columns=[c for c in drop_cols if c in test_df.columns])
 
-        # Split
-    train_df, test_df = split_data(df_feat)
-    X_train = train_df.drop(columns=['target', 'final_instructor_score'])
+    logger.info("Train/Val/Test split: train=%d, val=%d, test=%d", len(train_df), len(val_df), len(test_df))
+
+    # Prepare matrices
+    X_train = train_df.drop(columns=['target', 'label_score'])
     y_train = train_df['target']
-    X_test  = test_df.drop(columns=['target', 'final_instructor_score'])
+    X_val   = val_df.drop(columns=['target', 'label_score'])
+    y_val   = val_df['target']
+    X_test  = test_df.drop(columns=['target', 'label_score'])
     y_test  = test_df['target']
-    mlflow.log_param('train_size', len(train_df))
-    mlflow.log_param('test_size', len(test_df))
+
+    # 🚨 Baseline evaluation before modeling
+    if 'naval_officers_formula_score' in test_df.columns:
+        from sklearn.metrics import classification_report
+        preds = (test_df['naval_officers_formula_score'] >= 58).astype(int)
+        print("\n--- Baseline: naval_officers_formula_score >= 58 ---")
+        print(classification_report(y_test, preds, zero_division=0))
 
     # Feature selection
     X_train_sel = prepare_features(X_train, y_train)
+    X_val_sel   = X_val[X_train_sel.columns]
     X_test_sel  = X_test[X_train_sel.columns]
-    mlflow.log_param('num_features_selected', X_train_sel.shape[1])
 
-    # Print selected features
-    logger.info("Selected features for Stage %d: %s", args.stage, list(X_train_sel.columns))
+    logger.info("Selected features: %s", list(X_train_sel.columns))
+    print("Selected features:", list(X_train_sel.columns))
 
-    # Train models
-    models = train_models(X_train_sel, y_train)
+    # Train models using train/val sets
+    models = train_models(X_train_sel, y_train, X_val_sel, y_val)
 
-    # Feature importance / coefficients
-    for name, mdl in models.items():
-        if hasattr(mdl, 'feature_importances_'):
-            importances = mdl.feature_importances_
-            feat_imp = sorted(zip(X_train_sel.columns, importances), key=lambda x: x[1], reverse=True)
-            logger.info(f"{name} feature importances: %s", feat_imp)
-            mlflow.log_text(str(feat_imp), f"feature_importances_{name}.txt")
-        elif hasattr(mdl, 'coef_'):
-            coefs = mdl.coef_[0]
-            feat_imp = sorted(zip(X_train_sel.columns, coefs), key=lambda x: abs(x[1]), reverse=True)
-            logger.info(f"{name} coefficients: %s", feat_imp)
-            mlflow.log_text(str(feat_imp), f"coefficients_{name}.txt")
+    # Evaluate models
+    for name, model in models.items():
+        evaluate_model(name, model, X_test_sel, y_test)
 
-            # Evaluate
-            for name, mdl in models.items():
-                evaluate_model(name, mdl, X_test_sel, y_test)
+    logger.info("Computing SHAP importances for Random Forest")
+    explainer = shap.TreeExplainer(models['rf'])
+    shap_values = explainer.shap_values(X_test_sel)
 
-            # Baseline heuristic (comparison only, not fed to model)
-            baseline = (test_df['final_instructor_score'] > 58).astype(int)
-            print("--- Baseline Heuristic ---")
-            print(classification_report(y_test, baseline, zero_division=0))
+    # --- Correct handling ---
+    if isinstance(shap_values, list):
+        vals = shap_values[1]  # List → pick class 1
+    elif shap_values.ndim == 3:
+        vals = shap_values[:, :, 1]  # 3D array → pick class 1
+    else:
+        vals = shap_values  # Already 2D
 
-            # Visualize results
-            plot_confusion_matrices(models, X_test_sel, y_test)
-            plot_roc_curves(models, X_test_sel, y_test)
-            plot_shap_summary(models['ensemble'], X_test_sel)
-            var = (models['ensemble'], X_test_sel)
+    # Aggregate SHAP values per feature
+    mean_importances = np.abs(vals).mean(axis=0)
+
+    # Now it's safe to create a Series
+    imp = pd.Series(mean_importances, index=X_test_sel.columns)
+    logger.info("Top 10 SHAP features: %s", imp.nlargest(10).to_dict())
+
+    plot_confusion_matrices(models, X_test_sel, y_test)
+    plot_roc_curves(models, X_test_sel, y_test)
+    if 'rf' in models:
+        plot_shap_summary(models['rf'], X_test_sel)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Run Navy Completion Prediction pipeline")
+    parser.add_argument('--data-file', required=True)
+    parser.add_argument('--labels-file', required=True)
+    parser.add_argument('--stage', type=int, choices=[1, 2], help="Stage 1 or Stage 2")
+    args = parser.parse_args()
+
+    stages = [args.stage] if args.stage else [1, 2]
+    for stg in stages:
+        run_stage(stg, args.data_file, args.labels_file)
+
+
+if __name__ == "__main__":
+    main()

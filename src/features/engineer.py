@@ -1,54 +1,33 @@
 import pandas as pd
 
 def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Perform feature engineering on the assessment DataFrame:
-      - Drop non-predictive and non-numeric columns
-      - Create numeric count and flag features
-      - Aggregate domain and overall scores
-      - One-hot encode categorical fields
-    """
     df = df.copy()
 
-    # Drop columns that are not predictive or non-numeric
-    cols_to_drop = ['Source.Name', 'assessment_date', 'completion_method', 'conduct_two_assessments']
-    df.drop(columns=[c for c in cols_to_drop if c in df.columns], inplace=True)
+    if 'main_assessment_date' not in df.columns and 'Source.Name' in df.columns:
+        df['main_assessment_date'] = pd.to_datetime(
+            df['Source.Name'].astype(str).str.split('_').str[0],
+            dayfirst=True,
+            errors='coerce'
+        )
 
-    # One-hot encode gender if present
-    if 'gender' in df.columns:
-        df['gender'] = df['gender'].map({'זכר': 'male', 'נקבה': 'female'}).fillna('unknown')
-        dummies = pd.get_dummies(df['gender'], prefix='gender')
-        df = pd.concat([df, dummies], axis=1)
-        df.drop(columns=['gender'], inplace=True)
+    df['assessment_size'] = df.groupby('main_assessment_date')['main_assessment_date'].transform('count')
+    df['day_of_week'] = df['main_assessment_date'].dt.dayofweek
+    df['short_assessment'] = (df['day_of_week'] != 6).astype(int)
 
-    # Count of assessment attempts per trainee (requires id temporarily)
-    if 'id' in df.columns:
-        attempt_counts = df.groupby('id').size().to_dict()
-        df['attempt_count'] = df['id'].map(attempt_counts)
-    else:
-        df['attempt_count'] = 1
+    for col in ['quality_group_score', 'cognition', 'initial_rating_score']:
+        if col in df.columns:
+            nonzero_median = df.loc[df[col] > 0, col].median()
+            df[col] = df[col].replace(0, nonzero_median)
 
-    # Flags if two-part assessment occurred
-    if 'conduct_two_assessments' in df.columns:
-        df['two_part_assessment'] = df['conduct_two_assessments'].fillna(0).astype(int)
+    test_cols = [col for col in df.columns if col.endswith('_test')]
+    df['tests_avg'] = df[test_cols].mean(axis=1)
+    df['assessment_avg'] = df.groupby('main_assessment_date')['tests_avg'].transform('mean')
+    global_avg = df['tests_avg'].mean()
+    df['adjusted_tests_avg'] = df['tests_avg'] * (global_avg / df['assessment_avg'])
 
-    # Aggregate machinery and electronics scores
-    mech_cols = [c for c in df.columns if c.startswith('machinery_')]
-    elec_cols = [c for c in df.columns if c.startswith('electronics_')]
-    if mech_cols:
-        df['total_mechanical_score'] = df[mech_cols].sum(axis=1)
-    if elec_cols:
-        df['total_electrical_score'] = df[elec_cols].sum(axis=1)
-    if mech_cols and elec_cols:
-        df['tech_diff'] = df['total_mechanical_score'] - df['total_electrical_score']
+    df['gender'] = df['gender'].map({'זכר': 1, 'נקבה': 0}).fillna(0)
+    df['stem_units'] = pd.Categorical(df['stem_units']).codes
 
-    # Sum all *_score fields for overall assessment performance
-    score_cols = [c for c in df.columns if c.endswith('_score')]
-    if score_cols:
-        df['assessment_sum_score'] = df[score_cols].sum(axis=1)
-
-    # Finally drop id
-    if 'id' in df.columns:
-        df.drop(columns=['id'], inplace=True)
+    df = df.drop(columns=['id', 'trainee_number', 'Source.Name', 'completion_method'], errors='ignore')
 
     return df

@@ -13,4 +13,13 @@ A modular machine-learning pipeline to predict trainee course completion for nav
   5. **Evaluation & visualization** (`src/visualization/plots.py`): confusion matrices, ROC/PR curves, SHAP interpretability.
   6. **Notebook orchestration** (`notebooks/main_stage1_pipeline.ipynb`): run full Stage 1 flow; easily port to Stage 2.
 
-## 📁 Project Structure
+# Navy Course Completion Prediction
+
+## Setup & Run
+
+```bash
+git clone <repo>
+cd navy_completion_prediction
+chmod +x run.sh
+./run.sh
+

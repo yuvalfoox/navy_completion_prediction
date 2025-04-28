@@ -2,95 +2,98 @@ import logging
 import pandas as pd
 import numpy as np
 
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.naive_bayes import GaussianNB
-from xgboost import XGBClassifier
-from lightgbm import LGBMClassifier
 from catboost import CatBoostClassifier
-
 from sklearn.impute import SimpleImputer
 from sklearn.feature_selection import VarianceThreshold, mutual_info_classif
-from sklearn.model_selection import GridSearchCV, StratifiedKFold
-from sklearn.metrics import f1_score, classification_report
+from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import classification_report, f1_score
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s %(levelname)s %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
 
 def prepare_features(X: pd.DataFrame, y: pd.Series) -> pd.DataFrame:
-    logger.info("Imputing missing values")
+    logger.info("Preparing features: imputing missing values")
     imp = SimpleImputer(strategy='median')
     X_imp = pd.DataFrame(imp.fit_transform(X), columns=X.columns)
 
-    logger.info("Filtering features with >30% zeros and low variance")
-    mask = (X_imp == 0).mean() < 0.3
-    X_filt = X_imp.loc[:, mask]
+    logger.info("Filtering features with >30% zeros")
+    zero_frac = (X_imp == 0).mean()
+    keep_mask = zero_frac < 0.30
+    X_filt = X_imp.loc[:, keep_mask]
+
+    logger.info("Applying low-variance filter")
     vt = VarianceThreshold(threshold=0.01)
     X_vt = pd.DataFrame(vt.fit_transform(X_filt), columns=X_filt.columns[vt.get_support()])
 
-    logger.info("Selecting features via mutual information")
+    logger.info("Computing mutual information for feature selection")
     mi = mutual_info_classif(X_vt, y, random_state=42)
-    sel = mi > 0.001
-    X_sel = X_vt.iloc[:, sel]
-    logger.info(f"Selected {X_sel.shape[1]} features")
+    keep_mi = mi > 0.001
+    X_sel = X_vt.loc[:, keep_mi]
+
+    logger.info(f"Selected {X_sel.shape[1]} features after MI filtering")
     return X_sel
 
-def train_models(X_train: pd.DataFrame, y_train: pd.Series) -> dict:
-    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+def train_models(X_train: pd.DataFrame, y_train: pd.Series, X_val: pd.DataFrame, y_val: pd.Series):
+    models = {}
 
     # Logistic Regression
-    pipe_lr = Pipeline([
-        ('scaler', StandardScaler()),
-        ('clf', LogisticRegression(solver='lbfgs', max_iter=2000))
-    ])
-    lr_params = {'clf__C': [0.01, 0.1, 1], 'clf__class_weight': [None, 'balanced']}
-    logger.info("Tuning Logistic Regression")
-    lr_gs = GridSearchCV(pipe_lr, lr_params, scoring='f1', cv=cv, n_jobs=-1)
-    lr_gs.fit(X_train, y_train)
-    best_lr = lr_gs.best_estimator_
-    logger.info(f"LR best params: {lr_gs.best_params_}")
+    logger.info("Training Logistic Regression")
+    lr = LogisticRegression(max_iter=2000, solver='saga', random_state=42)
+    lr.fit(X_train, y_train)
+    models['lr'] = lr
 
     # Random Forest
-    rf_params = {'n_estimators': [100], 'max_depth': [None, 10], 'class_weight': [None, 'balanced']}
-    logger.info("Tuning Random Forest")
-    rf_gs = GridSearchCV(RandomForestClassifier(random_state=42), rf_params, scoring='f1', cv=cv, n_jobs=-1)
-    rf_gs.fit(X_train, y_train)
-    best_rf = rf_gs.best_estimator_
-    logger.info(f"RF best params: {rf_gs.best_params_}")
+    logger.info("Training Random Forest")
+    rf = RandomForestClassifier(n_estimators=200, max_depth=None, random_state=42)
+    rf.fit(X_train, y_train)
+    models['rf'] = rf
 
-    # XGBoost
-    logger.info("Training XGBoost")
-    xgb = XGBClassifier(use_label_encoder=False, eval_metric='logloss', random_state=42)
-    xgb.fit(X_train, y_train)
-
-    # LightGBM
-    logger.info("Training LightGBM")
-    lgb = LGBMClassifier(random_state=42)
-    lgb.fit(X_train, y_train)
+    # GaussianNB
+    logger.info("Training GaussianNB")
+    nb = GaussianNB()
+    nb.fit(X_train, y_train)
+    models['nb'] = nb
 
     # CatBoost
     logger.info("Training CatBoost")
-    cb = CatBoostClassifier(verbose=0, random_state=42)
+    cb = CatBoostClassifier(iterations=200, depth=6, learning_rate=0.1, verbose=0, random_state=42)
     cb.fit(X_train, y_train)
+    models['cb'] = cb
 
-    # Voting Ensemble
+    # Voting ensemble
+    logger.info("Building soft voting ensemble")
     ensemble = VotingClassifier(
-        estimators=[('lr', best_lr), ('rf', best_rf), ('xgb', xgb), ('lgb', lgb), ('cb', cb)],
+        estimators=[('lr', models['lr']), ('rf', models['rf']), ('nb', models['nb']), ('cb', models['cb'])],
         voting='soft', n_jobs=-1
     )
     ensemble.fit(X_train, y_train)
-    logger.info("Ensemble trained")
+    models['ensemble'] = ensemble
 
-    return {'lr': best_lr, 'rf': best_rf, 'xgb': xgb, 'lgb': lgb, 'cb': cb, 'ensemble': ensemble}
+    return models
 
 
 def evaluate_model(name: str, model, X_test: pd.DataFrame, y_test: pd.Series):
     logger.info(f"Evaluating {name}")
-    X_input = X_test if hasattr(model, 'named_steps') else X_test.values
-    y_pred = model.predict(X_input)
-    logger.info(f"{name} F1: {f1_score(y_test, y_pred):.3f}")
-    print(f"--- {name} ---")
+    y_pred = model.predict(X_test)
+    f1 = f1_score(y_test, y_pred)
+    logger.info(f"{name} F1 score: {f1:.3f}")
+    print(f"\n--- {name} ---")
     print(classification_report(y_test, y_pred, zero_division=0))
+
+    # Feature importances
+    if hasattr(model, 'feature_importances_'):
+        imp = model.feature_importances_
+    elif hasattr(model, 'coef_'):
+        imp = model.coef_.ravel()
+    else:
+        logger.info(f"No feature importances for model {name}")
+        return
+
+    features = X_test.columns
+    for feat, val in sorted(zip(features, imp), key=lambda x: abs(x[1]), reverse=True):
+        print(f"{feat}: {val:.4f}")
