@@ -3,21 +3,24 @@
 import argparse
 import logging
 import warnings
+import os
+import json
 import pandas as pd
-import shap
 import numpy as np
+
+from sklearn.metrics import classification_report, confusion_matrix, roc_curve, precision_recall_curve, f1_score
 
 from src.data.load_data import load_data_and_label
 from src.features.engineer import engineer_features
 from src.models.train import prepare_features, train_models, evaluate_model
-from src.visualization.plots import plot_confusion_matrices, plot_roc_curves, plot_shap_summary
+from src.config import train_frac, val_frac
 
 warnings.filterwarnings("ignore")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 
-def prepare_X_y(df: pd.DataFrame):
+def prepare_X_y(df):
     drop_cols = ['target']
     if 'label_score' in df.columns:
         drop_cols.append('label_score')
@@ -26,12 +29,24 @@ def prepare_X_y(df: pd.DataFrame):
     return X, y
 
 
-def split_by_date(data: pd.DataFrame, train_frac=0.6, val_frac=0.2):
-    data = data.sort_values('main_assessment_date')
+def split_by_date(data: pd.DataFrame):
+    """Chronological split by main_assessment_date into train/val/test."""
+    data = data.sort_values('main_assessment_date').reset_index(drop=True)
+    data['row_index'] = np.arange(1, len(data) + 1)
+
     n = len(data)
     train_end = int(n * train_frac)
     val_end = int(n * (train_frac + val_frac))
-    return data.iloc[:train_end], data.iloc[train_end:val_end], data.iloc[val_end:]
+
+    train_df = data.iloc[:train_end]
+    val_df = data.iloc[train_end:val_end]
+    test_df = data.iloc[val_end:]
+
+    print(f"Train rows: {train_df['row_index'].min()} - {train_df['row_index'].max()} ({len(train_df)})")
+    print(f"Val rows: {val_df['row_index'].min()} - {val_df['row_index'].max()} ({len(val_df)})")
+    print(f"Test rows: {test_df['row_index'].min()} - {test_df['row_index'].max()} ({len(test_df)})")
+
+    return train_df.drop(columns=['row_index']), val_df.drop(columns=['row_index']), test_df.drop(columns=['row_index'])
 
 
 def run_stage(stage: int, data_fp: str, labels_fp: str):
@@ -52,50 +67,76 @@ def run_stage(stage: int, data_fp: str, labels_fp: str):
 
     logger.info("Train/Val/Test split: train=%d, val=%d, test=%d", len(train_df), len(val_df), len(test_df))
 
-    # Prepare feature matrices
     X_train, y_train = prepare_X_y(train_df)
     X_val, y_val = prepare_X_y(val_df)
     X_test, y_test = prepare_X_y(test_df)
 
+    output_dir = f"output/stage{stage}"
+    os.makedirs(output_dir, exist_ok=True)
 
-# Baseline (before dropping)
+    # --- Heuristic Baseline ---
     if 'naval_officers_formula_score' in test_df.columns:
-        from sklearn.metrics import classification_report
         preds = (test_df['naval_officers_formula_score'] >= 58).astype(int)
-        print("\n--- Baseline: naval_officers_formula_score >= 58 ---")
+
+        f1 = f1_score(y_test, preds)
+        report = classification_report(y_test, preds, output_dict=True, zero_division=0)
+        cm = confusion_matrix(y_test, preds).tolist()
+        fpr, tpr, _ = roc_curve(y_test, preds)
+        prec, rec, _ = precision_recall_curve(y_test, preds)
+
+        heuristic_metrics = {
+            "f1": f1,
+            "precision": report['1']['precision'],
+            "recall": report['1']['recall'],
+            "best_threshold": 0.5
+        }
+
+        heuristic_file = os.path.join(output_dir, "heuristic_metrics.json")
+        with open(heuristic_file, "w") as f:
+            json.dump({"heuristic": heuristic_metrics}, f, indent=4)
+
+        with open(os.path.join(output_dir, "confusion_matrix_heuristic.json"), "w") as f:
+            json.dump(cm, f, indent=4)
+
+        with open(os.path.join(output_dir, "roc_curve_heuristic.json"), "w") as f:
+            json.dump({"fpr": fpr.tolist(), "tpr": tpr.tolist()}, f, indent=4)
+
+        with open(os.path.join(output_dir, "prc_curve_heuristic.json"), "w") as f:
+            json.dump({"precision": prec.tolist(), "recall": rec.tolist()}, f, indent=4)
+
+        with open(os.path.join(output_dir, "threshold_scores_heuristic.json"), "w") as f:
+            json.dump({"0.5": f1}, f, indent=4)
+
+        print(f"\n--- Heuristic (naval_officers_formula_score >= 58) ---")
         print(classification_report(y_test, preds, zero_division=0))
 
-    # Feature preparation
+    # --- Train ML Models ---
     X_train_sel, X_val_sel, X_test_sel = prepare_features(X_train, y_train, X_val, X_test)
-
     logger.info("Selected features: %s", list(X_train_sel.columns))
-    print("Selected features:", list(X_train_sel.columns))
 
-    # Train models
     models = train_models(X_train_sel, y_train, X_val_sel, y_val)
 
-    # Evaluate models
     for name, model in models.items():
-        evaluate_model(name, model, X_test_sel, y_test)
+        evaluate_model(name, model, X_test_sel, y_test, output_dir)
+        logger.info(f"Model {name} evaluation complete")
 
-    # SHAP feature importance
-    if 'rf' in models:
-        logger.info("Computing SHAP importances for Random Forest")
-        explainer = shap.TreeExplainer(models['rf'])
-        shap_values = explainer.shap_values(X_test_sel)
-        if isinstance(shap_values, list):
-            vals = shap_values[1]
-        elif shap_values.ndim == 3:
-            vals = shap_values[:, :, 1]
-        else:
-            vals = shap_values
-        imp = pd.Series(np.abs(vals).mean(axis=0), index=X_test_sel.columns)
-        logger.info("Top 10 SHAP features: %s", imp.nlargest(10).to_dict())
+    # --- Merge Heuristic + Model Metrics ---
+    metrics_file = os.path.join(output_dir, "models_metrics.json")
+    heuristic_file = os.path.join(output_dir, "heuristic_metrics.json")
 
-    plot_confusion_matrices(models, X_test_sel, y_test)
-    plot_roc_curves(models, X_test_sel, y_test)
-    if 'rf' in models:
-        plot_shap_summary(models['rf'], X_test_sel)
+    if os.path.exists(metrics_file) and os.path.exists(heuristic_file):
+        with open(metrics_file, "r") as f:
+            metrics_models = json.load(f)
+
+        with open(heuristic_file, "r") as f:
+            metrics_heuristic = json.load(f)
+
+        combined = {**metrics_models, **metrics_heuristic}
+        with open(metrics_file, "w") as f:
+            json.dump(combined, f, indent=4)
+
+        os.remove(heuristic_file)
+
 
 def main():
     parser = argparse.ArgumentParser(description="Run Navy Completion Prediction pipeline")
@@ -107,6 +148,7 @@ def main():
     stages = [args.stage] if args.stage else [1, 2]
     for stg in stages:
         run_stage(stg, args.data_file, args.labels_file)
+
 
 if __name__ == "__main__":
     main()
